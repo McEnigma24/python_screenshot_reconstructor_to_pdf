@@ -1,0 +1,66 @@
+# ✅ ❌ #
+
+# set -e              — po błędzie dowolnej komendy (status != 0) skrypt się kończy (errexit).
+# set -o pipefail     — `-o` + nazwa opcji: w potoku `a | b | c` błąd w dowolnym etapie daje
+#                       niezerowy status całego potoku (bez tego liczy się tylko ostatnia komenda).
+# set -x              — przed wykonaniem każdej linii wypisuje rozwiniętą komendę (ślad / debug).
+
+set -eo pipefail
+# set -x
+
+PACKAGES=(
+    tar
+    make
+    cmake
+    build-essential
+    gcc
+    g++
+    libstdc++-11-dev
+    clang
+    libomp-dev
+    libbenchmark-dev
+    libcurl4-openssl-dev
+    libprotobuf-dev
+    protobuf-compiler
+    docker-compose-v2
+    docker
+)
+
+# echo "BASH_SOURCE[0] (ścieżka do tego pliku przy source; może być względna):"$'\t\t'" ->${BASH_SOURCE[0]}<-"
+# echo "dirname ... (katalog pliku, bez nazwy pliku):"$'\t\t'" ->$(dirname "${BASH_SOURCE[0]}")<-"
+# echo "cd ... && pwd (kanoniczna ścieżka absolutna katalogu pliku):"$'\t\t'"->$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)<-"
+# can be called from any directory -> always gets the WORKING_DIR correct
+export DIR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && realpath .)" # od pwd
+_img_path="${DIR_ROOT#/}"
+# Docker tag / image name: only [a-z0-9-] after lowercasing; map everything else to '-'.
+_filter="$(printf '%s' "$_img_path" | LC_ALL=C tr -c 'a-zA-Z0-9' '-' | tr -s '-')"
+export DOCKER_IMG_PREFIX="${_filter,,}---"
+
+export DIR_TARGET="exe"
+export DIR_INPUT="input"
+export DIR_OUTPUT="output"
+export DIR_BUILD="build"
+export DIR_EXTERNAL="external"
+export DIR_SCRIPTS="scripts"
+export DIR_LOG="log"
+export DIR_RUN_TIME_CONFIG="run_time_config"
+
+export LOG_container_compile="$DIR_ROOT/$DIR_LOG/start.log"
+export LOG_run="$DIR_ROOT/$DIR_LOG/run.log"
+export PATH_DONE_install="${DIR_RUN_TIME_CONFIG}/DONE_installed.txt"
+
+# works only if sourcing is done for every script       #
+# otherwise main will set values for every other shell  #
+export CALLING_ARGUMENTS="$@"
+# ONLY FOR REFERENCE # just use -> "$@"
+
+export PATH_LAST_ARCH_MARKER="$DIR_ROOT/.last_arch_marker"
+
+
+function silent_come_back() { cd - > /dev/null; };                              export -f silent_come_back
+function clear_file() { if [ -f $1 ]; then rm -rf $1; fi; };                    export -f clear_file
+function clear_file_nested() { cd $1; clear_file "$2"; silent_come_back; };     export -f clear_file_nested
+function clear_dir() { if [ -d $1 ]; then rm -rf $1; fi; mkdir $1; };           export -f clear_dir
+function clear_dir_nested() { cd $1; clear_dir "$2"; silent_come_back; };       export -f clear_dir_nested
+function create_dir() { if [ ! -d $1 ]; then mkdir $1; fi; };                   export -f create_dir
+function create_dir_nested() { cd $1; create_dir "$2"; silent_come_back; };     export -f create_dir_nested
