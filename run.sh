@@ -1,6 +1,7 @@
 #!/bin/bash
 
 source config
+create_dir "in"
 clear_dir "out"
 
 # # # # # # # # # # # # # # # # # #
