@@ -7,6 +7,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytesseract
 from PIL import Image
 
 
@@ -519,6 +520,106 @@ def get_final_merged_images(directory: Path) -> list[Path]:
     return final_images if final_images else [max(merged_images, key=lambda p: len(p.stem))]
 
 
+def compare_with_baseline(
+    cropped_path: Path,
+    baseline_dir: Path,
+    output_path: Path | None = None,
+) -> bool:
+    baseline_path = baseline_dir / cropped_path.name
+    if not baseline_path.exists():
+        print(f"Brak pliku baseline: {baseline_path}")
+        return False
+
+    cropped = load_rgba(cropped_path)
+    baseline = load_rgba(baseline_path)
+
+    if cropped.shape != baseline.shape:
+        print(
+            f"Różne wymiary: cropped {cropped.shape[1]}x{cropped.shape[0]} "
+            f"vs baseline {baseline.shape[1]}x{baseline.shape[0]}"
+        )
+
+    h = min(cropped.shape[0], baseline.shape[0])
+    w = min(cropped.shape[1], baseline.shape[1])
+
+    diff_img = cropped.copy()
+    diff_mask = np.zeros(cropped.shape[:2], dtype=bool)
+    diff_mask[:h, :w] = np.any(cropped[:h, :w] != baseline[:h, :w], axis=2)
+
+    if cropped.shape[0] > h:
+        diff_mask[h:, :] = True
+    if cropped.shape[1] > w:
+        diff_mask[:, w:] = True
+
+    diff_img[diff_mask] = (255, 0, 0, 255)
+
+    diff_count = int(np.sum(diff_mask))
+    total = cropped.shape[0] * cropped.shape[1]
+    pct = 100.0 * diff_count / total if total else 0.0
+    print(
+        f"Porównanie {cropped_path.name} z baseline: "
+        f"{diff_count}/{total} pikseli różnych ({pct:.4f}%)"
+    )
+
+    if output_path is None:
+        output_path = cropped_path.with_name(f"{cropped_path.stem}_diff.png")
+    save_rgba(output_path, diff_img)
+    print(f"Zapisano mapę różnic: {output_path}")
+    return diff_count == 0
+
+
+def compare_cropped_with_baseline(
+    work_dir: Path,
+    baseline_dir: Path | None = None,
+    cropped_dir: Path | None = None,
+) -> None:
+    baseline_dir = baseline_dir or Path("baseline")
+    cropped_dir = cropped_dir or work_dir / "cropped"
+    merged_images = get_final_merged_images(work_dir)
+
+    if not merged_images:
+        print(f"Brak plików merged_* do porównania z baseline w {work_dir}")
+        return
+
+    for image_path in merged_images:
+        compare_with_baseline(cropped_dir / image_path.name, baseline_dir)
+
+
+def png_to_searchable_pdf(input_path: Path, output_path: Path, lang: str = "pol") -> bool:
+    if not input_path.exists():
+        print(f"Nie znaleziono pliku: {input_path}")
+        return False
+
+    try:
+        print(f"Trwa OCR i tworzenie PDF: {input_path.name}...")
+        img = Image.open(input_path)
+        pdf_bytes = pytesseract.image_to_pdf_or_hocr(img, extension="pdf", lang=lang)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(pdf_bytes)
+        print(f"Utworzono przeszukiwalny PDF: {output_path}")
+        return True
+    except pytesseract.TesseractNotFoundError:
+        print("Błąd: nie znaleziono programu Tesseract w systemie.")
+        return False
+    except Exception as e:
+        print(f"Błąd podczas tworzenia PDF: {e}")
+        return False
+
+
+def convert_cropped_merges_to_pdf(work_dir: Path, cropped_dir: Path | None = None, lang: str = "pol") -> None:
+    cropped_dir = cropped_dir or work_dir / "cropped"
+    merged_images = get_final_merged_images(work_dir)
+
+    if not merged_images:
+        print(f"Brak plików merged_* do konwersji na PDF w {work_dir}")
+        return
+
+    for image_path in merged_images:
+        png_path = cropped_dir / image_path.name
+        pdf_path = cropped_dir / f"{image_path.stem}.pdf"
+        png_to_searchable_pdf(png_path, pdf_path, lang=lang)
+
+
 def crop_final_merges(work_dir: Path, cropped_dir: Path | None = None) -> None:
     cropped_dir = cropped_dir or work_dir / "cropped"
     merged_images = get_final_merged_images(work_dir)
@@ -542,7 +643,6 @@ def run_merge_pipeline(in_dir: Path, out_dir: Path) -> None:
         print(f"Pozostało obrazów: {len(inputs)}\n")
 
     print("Brak kolejnych dopasowań do zmergowania.")
-    crop_final_merges(out_dir)
 
 
 
@@ -555,8 +655,11 @@ def main() -> None:
 
     # run_merge_pipeline(in_dir, out_dir)
 
-    crop_final_merges(out_dir)
+    # crop_final_merges(out_dir)
 
+    compare_cropped_with_baseline(out_dir)
+
+    convert_cropped_merges_to_pdf(out_dir)
 
 
 if __name__ == "__main__":
