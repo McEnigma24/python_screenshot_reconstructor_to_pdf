@@ -242,8 +242,8 @@ def sample_column_background(
     x: int,
     footer_top: int,
 ) -> np.ndarray:
-    y_end = max(0, footer_top - 6)
-    y_start = max(0, footer_top - 36)
+    y_end = max(0, footer_top - 10)
+    y_start = max(0, footer_top - 50)
 
     if y_start >= y_end:
         column = rgba[:footer_top, x, :].reshape(-1, 4).astype(np.int16)
@@ -256,9 +256,21 @@ def sample_column_background(
     return np.median(column, axis=0).astype(np.uint8)
 
 
-def detect_footer_top(rgba: np.ndarray, footer_height: int = 110) -> int:
+def detect_footer_top(rgba: np.ndarray, footer_height: int = 130) -> int:
     h = rgba.shape[0]
-    return max(0, h - footer_height)
+    footer_top = max(0, h - footer_height)
+
+    for y in range(footer_top - 1, max(0, footer_top - 35), -1):
+        row = rgba[y, :, :3].astype(np.float32)
+        luminance = 0.299 * row[:, 0] + 0.587 * row[:, 1] + 0.114 * row[:, 2]
+        row_median = np.median(luminance)
+
+        if np.mean(luminance > row_median + 18) > 0.004:
+            footer_top = y
+        else:
+            break
+
+    return footer_top
 
 
 def remove_footer_watermarks(pixels: np.ndarray) -> np.ndarray:
@@ -277,8 +289,9 @@ def remove_footer_watermarks(pixels: np.ndarray) -> np.ndarray:
         for y in range(footer_top, h):
             pixel = rgba[y, x]
             pixel_lum = 0.299 * pixel[0] + 0.587 * pixel[1] + 0.114 * pixel[2]
+            color_distance = np.max(np.abs(pixel.astype(np.int16) - background.astype(np.int16)))
 
-            if pixel_lum > background_lum + 8:
+            if pixel_lum > background_lum + 5 or color_distance > 10:
                 rgba[y, x] = background
                 replaced += 1
 
