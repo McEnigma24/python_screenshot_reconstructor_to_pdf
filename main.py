@@ -522,10 +522,12 @@ def get_final_merged_images(directory: Path) -> list[Path]:
 
 def compare_with_baseline(
     cropped_path: Path,
-    baseline_dir: Path,
-    output_path: Path | None = None,
+    baseline_path: Path,
+    output_path: Path,
 ) -> bool:
-    baseline_path = baseline_dir / cropped_path.name
+    if not cropped_path.exists():
+        print(f"Brak pliku cropped: {cropped_path}")
+        return False
     if not baseline_path.exists():
         print(f"Brak pliku baseline: {baseline_path}")
         return False
@@ -535,7 +537,8 @@ def compare_with_baseline(
 
     if cropped.shape != baseline.shape:
         print(
-            f"Różne wymiary: cropped {cropped.shape[1]}x{cropped.shape[0]} "
+            f"Różne wymiary ({cropped_path.name} vs {baseline_path.name}): "
+            f"cropped {cropped.shape[1]}x{cropped.shape[0]} "
             f"vs baseline {baseline.shape[1]}x{baseline.shape[0]}"
         )
 
@@ -557,12 +560,10 @@ def compare_with_baseline(
     total = cropped.shape[0] * cropped.shape[1]
     pct = 100.0 * diff_count / total if total else 0.0
     print(
-        f"Porównanie {cropped_path.name} z baseline: "
+        f"Porównanie {cropped_path.name} vs {baseline_path.name}: "
         f"{diff_count}/{total} pikseli różnych ({pct:.4f}%)"
     )
 
-    if output_path is None:
-        output_path = cropped_path.with_name(f"{cropped_path.stem}_diff.png")
     save_rgba(output_path, diff_img)
     print(f"Zapisano mapę różnic: {output_path}")
     return diff_count == 0
@@ -572,17 +573,37 @@ def compare_cropped_with_baseline(
     work_dir: Path,
     baseline_dir: Path | None = None,
     cropped_dir: Path | None = None,
+    diff_dir: Path | None = None,
 ) -> None:
     baseline_dir = baseline_dir or Path("baseline")
     cropped_dir = cropped_dir or work_dir / "cropped"
-    merged_images = get_final_merged_images(work_dir)
+    diff_dir = diff_dir or Path("diff")
 
+    baseline_images = list_images(baseline_dir)
+    if not baseline_images:
+        print(f"Brak obrazów baseline w {baseline_dir}")
+        return
+
+    merged_images = get_final_merged_images(work_dir)
     if not merged_images:
         print(f"Brak plików merged_* do porównania z baseline w {work_dir}")
         return
 
     for image_path in merged_images:
-        compare_with_baseline(cropped_dir / image_path.name, baseline_dir)
+        cropped_path = cropped_dir / image_path.name
+        for baseline_path in baseline_images:
+            output_name = f"{cropped_path.stem}__vs__{baseline_path.stem}.png"
+            compare_with_baseline(
+                cropped_path,
+                baseline_path,
+                diff_dir / output_name,
+            )
+
+
+def prepare_diff_dir(diff_dir: Path) -> None:
+    if diff_dir.exists():
+        shutil.rmtree(diff_dir)
+    diff_dir.mkdir(parents=True)
 
 
 def png_to_searchable_pdf(input_path: Path, output_path: Path, lang: str = "pol") -> bool:
@@ -653,13 +674,17 @@ def main() -> None:
     out_dir = Path("out")
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    diff_dir = Path("diff")
+    prepare_diff_dir(diff_dir)
+
     # run_merge_pipeline(in_dir, out_dir)
 
     # crop_final_merges(out_dir)
 
-    compare_cropped_with_baseline(out_dir)
+    compare_cropped_with_baseline(out_dir, diff_dir=diff_dir)
 
     convert_cropped_merges_to_pdf(out_dir)
+
 
 
 if __name__ == "__main__":
