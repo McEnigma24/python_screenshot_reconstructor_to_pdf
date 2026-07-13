@@ -237,6 +237,55 @@ def crop_detected_border(
     return rgba[top : h - bottom, left : w - right], (top, bottom, left, right)
 
 
+def sample_column_background(
+    rgba: np.ndarray,
+    x: int,
+    footer_top: int,
+) -> np.ndarray:
+    y_end = max(0, footer_top - 6)
+    y_start = max(0, footer_top - 36)
+
+    if y_start >= y_end:
+        column = rgba[:footer_top, x, :].reshape(-1, 4).astype(np.int16)
+    else:
+        column = rgba[y_start:y_end, x, :].reshape(-1, 4).astype(np.int16)
+
+    if column.size == 0:
+        column = rgba[footer_top:, x, :].reshape(-1, 4).astype(np.int16)
+
+    return np.median(column, axis=0).astype(np.uint8)
+
+
+def detect_footer_top(rgba: np.ndarray, footer_height: int = 110) -> int:
+    h = rgba.shape[0]
+    return max(0, h - footer_height)
+
+
+def remove_footer_watermarks(pixels: np.ndarray) -> np.ndarray:
+    rgba = ensure_rgba(pixels).copy()
+    h, w = rgba.shape[:2]
+    footer_top = detect_footer_top(rgba)
+
+    if footer_top >= h:
+        return rgba
+
+    replaced = 0
+    for x in range(w):
+        background = sample_column_background(rgba, x, footer_top)
+        background_lum = 0.299 * background[0] + 0.587 * background[1] + 0.114 * background[2]
+
+        for y in range(footer_top, h):
+            pixel = rgba[y, x]
+            pixel_lum = 0.299 * pixel[0] + 0.587 * pixel[1] + 0.114 * pixel[2]
+
+            if pixel_lum > background_lum + 8:
+                rgba[y, x] = background
+                replaced += 1
+
+    print(f"Usunięto watermarki w stopce: {replaced} pikseli (footer_top={footer_top})")
+    return rgba
+
+
 def crop_to_content(image_path: Path, output_path: Path) -> bool:
     try:
         pixels = load_rgba(image_path)
@@ -245,6 +294,7 @@ def crop_to_content(image_path: Path, output_path: Path) -> bool:
         return False
 
     cropped, (top, bottom, left, right) = crop_detected_border(pixels)
+    cropped = remove_footer_watermarks(cropped)
 
     save_rgba(output_path, cropped)
     print(
