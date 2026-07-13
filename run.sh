@@ -2,7 +2,7 @@
 
 source config
 create_dir "in"
-clear_dir "out"
+create_dir "out"
 
 # # # # # # # # # # # # # # # # # #
 
